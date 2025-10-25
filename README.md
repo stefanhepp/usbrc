@@ -1,8 +1,14 @@
-README
-------
+USB RC Receiver
+---------------
 
-Template repository for hardware design projects, using KiCAD and FreeCAD.
+USB RC receiver to be used as wireless controller for RC flight sims.
 
+Based on ESP32, supports multiple protocols:
+* S.BUS (FrSky)
+* SRXL2 (Spektrum)
+
+The SRXL2 protocol implementation is based on the SpektrmRC SRXL2 implementation:
+https://github.com/SpektrumRC/SRXL2.git
 
 License
 -------

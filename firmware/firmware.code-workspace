@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "micro-srxl2"
+		},
+		{
+			"path": "esp32"
+		},
+		{
+			"path": "micro-sbus"
+		}
+	]
+}
