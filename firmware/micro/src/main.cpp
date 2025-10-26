@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #include <Joystick.h>
+#include <sbus.h>
 
 #include "spm_srxl.h"
 
@@ -24,14 +25,13 @@ static const int AXIS_MIN = 0;
 static const int AXIS_MAX = 2047; // 65535;
 static const int BTN_MID = 1023; // 32768;
 
-static const uint8_t PIN_BIND = A0;
+static const int PIN_RXLED = 17;
+static const int PIN_MODE = 9;
 
 static const uint32_t UniqueID = 0x53652254;
 static const int BusID = 0;
 
-static const int RXLED = 17;
-
-static const bool DEBUG = true;
+static const bool DEBUG = false;
 
 // UART receive buffer
 uint8_t rxBuffer[2 * SRXL_MAX_BUFFER_SIZE];
@@ -39,7 +39,13 @@ uint8_t rxBufferIndex = 0;
 
 unsigned long lastRxTime = 0;
 
-int lastBindButtonState = HIGH;
+bool modeSBus = false;
+
+// SBUS object, reading SBUS
+bfs::SbusRx sbus_rx(&Serial1);
+// SBUS data
+bfs::SbusData data;
+
 
 void uartTransmit(uint8_t uartNum, uint8_t* pBuffer, uint8_t bytesToSend)
 {
@@ -106,42 +112,7 @@ void userProvidedReceivedChannelData(SrxlChannelData* pChannelData, bool isFails
     }
 }
 
-
-void setup() {
-
-    pinMode(LED_BUILTIN, OUTPUT);
-    pinMode(PIN_BIND, INPUT_PULLUP);
-
-    digitalWrite(RXLED, HIGH);
-
-    Serial1.begin(115200, SERIAL_8N1);
-    Serial1.setTimeout(5);
-
-    Joystick.setXAxisRange(AXIS_MIN, AXIS_MAX);
-    Joystick.setYAxisRange(AXIS_MIN, AXIS_MAX);
-    Joystick.setZAxisRange(AXIS_MIN, AXIS_MAX);
-    Joystick.setRxAxisRange(AXIS_MIN, AXIS_MAX);
-    Joystick.setRyAxisRange(AXIS_MIN, AXIS_MAX);
-    Joystick.setRzAxisRange(AXIS_MIN, AXIS_MAX);
-
-    Joystick.setRudderRange(AXIS_MIN, AXIS_MAX);
-    Joystick.setThrottleRange(AXIS_MIN, AXIS_MAX);
-    Joystick.setAcceleratorRange(AXIS_MIN, AXIS_MAX);
-    Joystick.setBrakeRange(AXIS_MIN, AXIS_MAX);
-    Joystick.setSteeringRange(AXIS_MIN, AXIS_MAX);
-    
-    Joystick.begin(false);
-
-    srxlInitDevice(SRXL_DEVICE_ID, SRXL_DEVICE_PRIORITY, SRXL_DEVICE_INFO, UniqueID);
-
-    srxlInitBus(BusID, 1, SRXL_SUPPORTED_BAUD_RATES);
-}
-
-void loop() {
-
-    // Turn indicator light on.
-    //digitalWrite(RXLED, (millis() / 1000) % 2);
-
+void processSRXL2() {
     if (Serial1.available()) {
         rxBufferIndex += Serial1.readBytes(&rxBuffer[rxBufferIndex], 2*SRXL_MAX_BUFFER_SIZE - rxBufferIndex);
         
@@ -177,21 +148,9 @@ void loop() {
 
         if (rxBufferIndex >= packetLength) {
             
-            if (rxBuffer[frameStart+1] == 0xCD && (rxBuffer[frameStart+8] & 0x01) && rxBuffer[frameStart+3] == 0) {
-                Serial.print("Ch0: ");
-                Serial.print(rxBuffer[frameStart+8], 16); Serial.print(" - ");
-
-                Serial.print(rxBuffer[frameStart+12], 16); Serial.print(" ");
-                Serial.print(rxBuffer[frameStart+13], 16);  Serial.print(" ");
-
-                Serial.print(rxBuffer[frameStart+14], 16);  Serial.print(" ");
-                Serial.print(rxBuffer[frameStart+15], 16);  Serial.print(" ");
-                Serial.print("\n");
-            }
-
             // Try to parse SRXL packet -- this internally calls srxlRun() after packet is parsed and reset timeout
             if(srxlParsePacket(BusID, rxBuffer, packetLength)) {
-                digitalWrite(RXLED, LOW);
+                digitalWrite(PIN_RXLED, LOW);
                 // Move any remaining bytes to beginning of buffer (usually 0)
                 rxBufferIndex -= packetLength + frameStart;
                 memmove(rxBuffer, &rxBuffer[packetLength + frameStart], rxBufferIndex);
@@ -225,16 +184,95 @@ void loop() {
         rxBufferIndex = 0;
         lastRxTime = now;
 
-        digitalWrite(RXLED, HIGH);
+        digitalWrite(PIN_RXLED, HIGH);
+    }
+}
+
+void processSBus() {
+    if (sbus_rx.Read()) {
+        
+        data = sbus_rx.data();
+        
+        if (DEBUG) {
+            for (int8_t i = 0; i < data.NUM_CH; i++) {
+                Serial.print(data.ch[i]);
+                Serial.print("\t");
+            }
+            
+            Serial.print(data.lost_frame);
+            Serial.print("\t");
+            Serial.println(data.failsafe);
+        }
+
+        Joystick.setXAxis(data.ch[0]);
+        Joystick.setYAxis(data.ch[1]);
+        Joystick.setZAxis(data.ch[2]);
+        Joystick.setRxAxis(data.ch[3]);
+        Joystick.setRyAxis(data.ch[4]);
+        Joystick.setRzAxis(data.ch[5]);
+
+        Joystick.setThrottle(data.ch[6]);
+        Joystick.setRudder(data.ch[7]);
+        Joystick.setSteering(data.ch[8]);
+        Joystick.setAccelerator(data.ch[9]);
+        Joystick.setBrake(data.ch[10]);
+
+        Joystick.setButton(0, data.ch[11] < 1024 ? 0 : 1);
+        Joystick.setButton(1, data.ch[12] < 1024 ? 0 : 1);
+        Joystick.setButton(2, data.ch[13] < 1024 ? 0 : 1);
+        Joystick.setButton(3, data.ch[14] < 1024 ? 0 : 1);
+        Joystick.setButton(4, data.ch[15] < 1024 ? 0 : 1);
+
+        Joystick.sendState();
+    }
+}
+
+void setup() {
+
+    pinMode(PIN_RXLED, OUTPUT);
+
+    pinMode(PIN_MODE, INPUT_PULLUP);
+
+    digitalWrite(PIN_RXLED, HIGH);
+
+    modeSBus = (digitalRead(PIN_MODE) == LOW);
+
+    if (modeSBus) {
+        sbus_rx.Begin();
+    } else {
+        Serial1.begin(115200, SERIAL_8N1);
+        Serial1.setTimeout(5);
+
+        srxlInitDevice(SRXL_DEVICE_ID, SRXL_DEVICE_PRIORITY, SRXL_DEVICE_INFO, UniqueID);
+        srxlInitBus(BusID, 1, SRXL_SUPPORTED_BAUD_RATES);
     }
 
-    // Check bind button
-    int bind = digitalRead(PIN_BIND);
+    Joystick.setXAxisRange(AXIS_MIN, AXIS_MAX);
+    Joystick.setYAxisRange(AXIS_MIN, AXIS_MAX);
+    Joystick.setZAxisRange(AXIS_MIN, AXIS_MAX);
+    Joystick.setRxAxisRange(AXIS_MIN, AXIS_MAX);
+    Joystick.setRyAxisRange(AXIS_MIN, AXIS_MAX);
+    Joystick.setRzAxisRange(AXIS_MIN, AXIS_MAX);
 
-    if (bind == LOW && lastBindButtonState == HIGH) {
-        //srxlEnterBind(DSMX_11MS, true);
+    Joystick.setRudderRange(AXIS_MIN, AXIS_MAX);
+    Joystick.setThrottleRange(AXIS_MIN, AXIS_MAX);
+    Joystick.setAcceleratorRange(AXIS_MIN, AXIS_MAX);
+    Joystick.setBrakeRange(AXIS_MIN, AXIS_MAX);
+    Joystick.setSteeringRange(AXIS_MIN, AXIS_MAX);
+    
+    Joystick.begin(false);
+}
+
+void loop() {
+
+    // Turn indicator light on.
+    //digitalWrite(RXLED, (millis() / 1000) % 2);
+
+    if (modeSBus) {
+        processSBus();
+    } else {
+        processSRXL2();
     }
 
-    lastBindButtonState = bind;
 }
 

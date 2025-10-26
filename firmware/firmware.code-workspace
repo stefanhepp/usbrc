@@ -1,13 +1,10 @@
 {
 	"folders": [
 		{
-			"path": "micro-srxl2"
+			"path": "micro"
 		},
 		{
 			"path": "esp32"
 		},
-		{
-			"path": "micro-sbus"
-		}
 	]
 }
