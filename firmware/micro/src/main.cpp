@@ -72,7 +72,8 @@ void userProvidedFillSrxlTelemetry(SrxlTelemetryData* pTelemetry)
 void userProvidedReceivedChannelData(SrxlChannelData* pChannelData, bool isFailsafeData)
 {
     if (DEBUG) {
-        Serial.print("msk: "); Serial.print(srxlChData.mask, 16); Serial.print(" ");
+        Serial.print("fail: "); Serial.print(isFailsafeData ? "y" : "n");
+        Serial.print(" msk: "); Serial.print(srxlChData.mask, 16); Serial.print(" data: ");
         Serial.print(srxlChData.values[0]); Serial.print(" "); Serial.print(srxlChData.values[1]); Serial.print(" ");
         Serial.print(srxlChData.values[2]); Serial.print(" "); Serial.print(srxlChData.values[3]); Serial.print(" ");
         Serial.print(srxlChData.values[4]); Serial.print(" "); Serial.print(srxlChData.values[5]); Serial.print(" ");
@@ -80,6 +81,11 @@ void userProvidedReceivedChannelData(SrxlChannelData* pChannelData, bool isFails
         Serial.print(srxlChData.values[8]); Serial.print(" "); Serial.print(srxlChData.values[9]); Serial.print(" ");
         Serial.print(srxlChData.values[10]); Serial.print(" "); Serial.print(srxlChData.values[11]); Serial.print(" ");
         Serial.print(srxlChData.values[12]); Serial.print(" "); Serial.print(srxlChData.values[13]); Serial.print("\n");
+    }
+
+    if (isFailsafeData || srxlChData.mask == 0x00) {
+        // Don't send joystick updates when transmitter is not connected
+        return;
     }
 
     if (srxlChData.mask & (1<< 0)) Joystick.setXAxis(srxlChData.values[0] / 32);
@@ -222,7 +228,7 @@ void processSBus() {
         Joystick.setButton(2, data.ch[13] < 1024 ? 0 : 1);
         Joystick.setButton(3, data.ch[14] < 1024 ? 0 : 1);
         Joystick.setButton(4, data.ch[15] < 1024 ? 0 : 1);
-
+        
         Joystick.sendState();
     }
 }
